@@ -1,60 +1,90 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Velocity Driver Terminal</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <style>
-        body { background: #000; color: #fff; font-family: sans-serif; text-align: center; padding: 40px; }
-        .btn { background: #276ef1; color: #fff; padding: 20px; border-radius: 12px; font-size: 20px; border: none; width: 100%; margin-bottom: 20px; font-weight: bold;}
-        .sos { background: #ff4b4b; box-shadow: 0 0 20px rgba(255,75,75,0.4); }
-        #status { color: #888; margin-bottom: 20px; font-family: monospace; }
+        body { background: #000; color: #fff; font-family: 'Inter', sans-serif; text-align: center; padding: 20px; }
+        .status { padding: 20px; border: 1px solid #333; border-radius: 15px; margin: 20px 0; font-weight: bold; }
+        .btn { padding: 18px; border-radius: 50px; border: none; font-weight: 800; width: 100%; margin: 12px 0; font-size: 1.1rem; cursor: pointer; transition: 0.3s; }
+        .btn-go { background: #00f2ff; color: #000; box-shadow: 0 0 15px rgba(0, 242, 255, 0.3); }
+        .btn-sos { background: #ff4b4b; color: #fff; box-shadow: 0 0 15px rgba(255, 75, 75, 0.3); }
+        #log { font-family: monospace; font-size: 0.8rem; color: #555; margin-top: 30px; }
     </style>
 </head>
 <body>
-    <h1>🚖 Velocity Driver</h1>
-    <div id="status">Status: OFFLINE</div>
+    <h2 style="letter-spacing: 2px;">VELOCITY <span style="color:#00f2ff">AI</span></h2>
+    <div class="status" id="statusBox">🛰️ SYSTEM: STANDBY</div>
     
-    <button class="btn" onclick="goLive()">GO ONLINE</button>
-    <button class="btn sos" id="sosBtn" onclick="toggleSOS()">TRIGGER SOS</button>
+    <button class="btn btn-go" id="goBtn" onclick="toggleOnline()">GO ONLINE</button>
+    <button class="btn btn-sos" id="sosBtn" onclick="toggleSOS()">TRIGGER SOS</button>
+    
+    <div id="log">Logs: System Initialized...</div>
 
     <script>
-        // TARGETING YOUR SPECIFIC DATABASE
-        const DB_URL = "https://velocity-ai-b3d5d-default-rtdb.firebaseio.com/drivers/Nikhil_Driver.json";
+        let isOnline = false;
         let sosActive = false;
+        const FIREBASE_URL = "https://velocity-ai-b3d5d-default-rtdb.firebaseio.com/drivers/Nikhil_Driver.json";
+        const SOS_API = "https://formspree.io/f/mgonydja"; // Your Unique Endpoint
+
+        async function updateFirebase(lat, lon, sos) {
+            try {
+                await fetch(FIREBASE_URL, {
+                    method: 'PATCH',
+                    body: JSON.stringify({ lat, lon, sos, last_seen: new Date().getTime() })
+                });
+                document.getElementById('log').innerText = `Syncing: ${lat.toFixed(5)}, ${lon.toFixed(5)}`;
+            } catch (e) { console.error("Firebase Sync Error", e); }
+        }
+
+        async function sendAgenticAlert(lat, lon) {
+            const statusBox = document.getElementById('statusBox');
+            statusBox.innerText = "🚀 AGENT: SENDING EMERGENCY PACKET...";
+            
+            try {
+                const response = await fetch(SOS_API, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        alert: "🚨 CRITICAL DRIVER SOS", 
+                        driver: "Nikhil_Driver", 
+                        coordinates: `${lat}, ${lon}`,
+                        maps_link: `https://www.google.com/maps?q=${lat},${lon}`
+                    })
+                });
+                if(response.ok) {
+                    statusBox.innerText = "✅ ALERT BROADCASTED TO ADMIN";
+                    statusBox.style.color = "#00ff9d";
+                }
+            } catch (e) { statusBox.innerText = "❌ ALERT FAILED - RETRYING"; }
+        }
+
+        function toggleOnline() {
+            isOnline = !isOnline;
+            const btn = document.getElementById('goBtn');
+            const status = document.getElementById('statusBox');
+            
+            btn.innerText = isOnline ? "GO OFFLINE" : "GO ONLINE";
+            btn.style.background = isOnline ? "#ffaa00" : "#00f2ff";
+            status.innerText = isOnline ? "🛰️ SYSTEM: TRACKING LIVE" : "🛰️ SYSTEM: STANDBY";
+
+            if(isOnline) {
+                navigator.geolocation.watchPosition((pos) => {
+                    updateFirebase(pos.coords.latitude, pos.coords.longitude, sosActive);
+                }, (err) => alert("Please enable GPS"), { enableHighAccuracy: true });
+            }
+        }
 
         function toggleSOS() {
             sosActive = !sosActive;
             const btn = document.getElementById('sosBtn');
-            btn.style.background = sosActive ? "#fff" : "#ff4b4b";
-            btn.style.color = sosActive ? "#ff4b4b" : "#fff";
-            btn.innerText = sosActive ? "SOS ACTIVE" : "TRIGGER SOS";
-        }
-
-        function goLive() {
-            document.getElementById('status').innerText = "Status: LIVE TRANSMITTING";
-            
-            // WatchPosition gets REAL hardware GPS updates
-            navigator.geolocation.watchPosition((pos) => {
-                const data = {
-                    lat: pos.coords.latitude,
-                    lon: pos.coords.longitude,
-                    sos: sosActive,
-                    timestamp: Date.now()
-                };
-
-                fetch(DB_URL, {
-                    method: 'PUT',
-                    body: JSON.stringify(data)
-                });
-                
-                document.getElementById('status').innerText = `LIVE: ${data.lat.toFixed(4)}, ${data.lon.toFixed(4)}`;
-            }, (err) => {
-                alert("GPS Error: Please enable Location Permissions");
-            }, {
-                enableHighAccuracy: true,
-                maximumAge: 0
-            });
+            if(sosActive) {
+                btn.innerText = "SOS ACTIVE"; btn.style.background = "#fff"; btn.style.color = "#ff4b4b";
+                navigator.geolocation.getCurrentPosition(p => sendAgenticAlert(p.coords.latitude, p.coords.longitude));
+            } else {
+                btn.innerText = "TRIGGER SOS"; btn.style.background = "#ff4b4b"; btn.style.color = "#fff";
+                document.getElementById('statusBox').innerText = "🛰️ SYSTEM: TRACKING LIVE";
+            }
         }
     </script>
 </body>
